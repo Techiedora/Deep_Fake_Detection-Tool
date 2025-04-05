@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up Page</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #a8edea, #fed6e3);
+            /* Soothing gradient background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            background-color: #fff;
+            /* Clean white container */
+            border-radius: 20px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 900px;
+            min-height: 550px;
+            display: flex;
+            overflow: hidden;
+            /* Prevent content overflow */
+        }
+
+        .image-container {
+            flex: 1;
+            /* Image takes 50% of the container */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(135deg, #fdfcfb, #e2d1c3);
+            /* Subtle gradient for the image area */
+        }
+
+        .image-container img {
+            width: 70%;
+            max-height: 70%;
+            border-radius: 50%;
+            object-fit: cover;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            /* Add subtle shadow to the image */
+        }
+
+        .form-container {
+            flex: 1;
+            /* Form takes 50% of the container */
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .title {
+            color: #3498db;
+            /* Vibrant title color */
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 700;
+            font-size: 2.5em;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #777;
+            font-weight: 500;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            box-sizing: border-box;
+            outline: none;
+            color: #333;
+            background-color: #f0f0f0;
+            /* Light input background */
+            transition: background-color 0.3s;
+            /* Smooth transition on focus */
+        }
+
+        input:focus {
+            background-color: #e0e0e0;
+            /* Slightly darker on focus */
+        }
+
+        button {
+            width: 100%;
+            padding: 14px 20px;
+            background-color: #2ecc71;
+            /* Green signup button */
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+            font-size: 1.1em;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            /* Add subtle shadow */
+        }
+
+        button:hover {
+            background-color: #27ae60;
+            /* Darker green on hover */
+            transform: translateY(-2px);
+            /* Slight lift effect on hover */
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                /* Stack image and form vertically */
+                width: 95%;
+                /* Wider container on smaller screens */
+            }
+
+            .image-container {
+                order: 1;
+                /* Move image to the top */
+                padding: 30px;
+                /* Add padding */
+            }
+
+            .image-container img {
+                width: 60%;
+                /* Adjust image size */
+            }
+
+            .form-container {
+                order: 2;
+                /* Move form below the image */
+                padding: 30px;
+                /* Add padding */
+            }
+
+            .title {
+                font-size: 2em;
+                /* Smaller title on mobile */
+            }
+
+            input {
+                padding: 10px;
+                /* Adjust input padding */
+            }
+
+            button {
+                font-size: 1em;
+                /* Adjust button font size */
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="image-container">
+            <img src="{{ url_for('static', filename='signup.jpg') }}" alt="Profile Image">
+        </div>
+        <div class="form-container">
+            <h1 class="title">Sign Up</h1>
+            <form method="post" action="/signup">
+                <div class="input-group">
+                    <label for="fullname">Full Name</label>
+                    <input type="text" id="fullname" name="fullname" placeholder="Enter your full name" required>
+                </div>
+                <div class="input-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" placeholder="Enter your email address" required>
+                </div>
+                <div class="input-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Enter your password" required>
+                </div>
+                <div class="input-group">
+                    <label for="confirm-password">Confirm Password</label>
+                    <input type="password" id="confirm-password" name="confirm-password"
+                        placeholder="Confirm your password" required>
+                </div>
+                <button type="submit">Sign Up</button>
+            </form>
+        </div>
+    </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+</body>
+
+</html>
