@@ -1,95 +1,274 @@
-#!/usr/bin/env python3
-
-import re  # Ensure re module is imported
+from flask import flash, redirect, render_template, request, url_for, get_flashed_messages, Flask, session
+from flask_sqlalchemy import SQLAlchemy
+import os
+import psycopg2
+import cv2
+from mtcnn import MTCNN
+import random
 import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
-import tkinter as tk
-from tkinter import messagebox
-import nltk
-from nltk.stem import WordNetLemmatizer
-from nltk.corpus import stopwords
+from skimage.metrics import normalized_root_mse, peak_signal_noise_ratio, structural_similarity
+import joblib
 
-nltk.download('wordnet')
-nltk.download('stopwords')
+db_user = "postgres"
+db_password = "Post_Nik18"
+db_host = "localhost"
+db_port = 5432
+db_name = "postgres"
 
-# Load dataset
-data = pd.read_csv('news.csv')  # Ensure your dataset is named 'news.csv'
+app = Flask(__name__, template_folder="templates")
 
-# Data preprocessing
-lemmatizer = WordNetLemmatizer()
-stop_words = set(stopwords.words('english'))
+app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{db_user}:{db_password}@{db_host}/{db_name}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False 
+app.secret_key = 'detection'
+app.config['SECRET_KEY'] = os.urandom(24)
 
-def preprocess_text(text):
-    text = text.lower()
-    text = re.sub(r'[^\w\s]', '', text)  # Remove special characters
-    words = text.split()
-    words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]
-    return ' '.join(words)
+db = SQLAlchemy()
+db.init_app(app)
 
-data['text'] = data['text'].apply(preprocess_text)
-X = data['text']
-y = data['label']  # Assuming 'label' column contains 'FAKE' or 'REAL'
-
-# Split the dataset into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Initialize TfidfVectorizer with n-grams and max features
-tfidf_vectorizer = TfidfVectorizer(stop_words='english', ngram_range=(1, 3), max_features=20000)
-X_train_tfidf = tfidf_vectorizer.fit_transform(X_train)
-X_test_tfidf = tfidf_vectorizer.transform(X_test)
-
-# Initialize RandomForestClassifier with hyperparameter tuning using GridSearchCV
-classifier = RandomForestClassifier()
-param_grid = {
-    'n_estimators': [100, 200, 300],
-    'max_features': ['auto', 'sqrt', 'log2'],
-    'max_depth': [10, 20, 30],
-    'criterion': ['gini', 'entropy']
+db_config = {
+    'host': db_host,
+    'port': db_port,
+    'database': db_name,
+    'user': db_user,
+    'password': db_password
 }
-grid_search = GridSearchCV(classifier, param_grid, scoring='accuracy', cv=2)  # Reduced cv to 2
-grid_search.fit(X_train_tfidf, y_train)
-classifier = grid_search.best_estimator_
+connection = psycopg2.connect(host=db_host, user=db_user, password=db_password, database=db_name)
+cursor = connection.cursor()
 
-# Evaluate the model on the test set
-y_pred = classifier.predict(X_test_tfidf)
-accuracy = accuracy_score(y_test, y_pred)
-print("Accuracy:", accuracy)
-print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
-print("Classification Report:\n", classification_report(y_test, y_pred))
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    fullname = db.Column(db.String(80), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(120), nullable=False)
 
-# Function to predict news article
-def predict_news():
-    article = text_entry.get("1.0", tk.END).strip()
-    if article:
-        article = preprocess_text(article)
-        article_tfidf = tfidf_vectorizer.transform([article])
-        prediction = classifier.predict(article_tfidf)
-        messagebox.showinfo("Prediction Result", f"The news article is: {prediction[0]}")
-    else:
-        messagebox.showwarning("Input Error", "Please enter a news article.")
 
-# Create the main window
-root = tk.Tk()
-root.title("Fake News Detection")
 
-# Create a label and text entry for the news article input
-label = tk.Label(root, text="Enter News Article:")
-label.pack(pady=10)
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-text_entry = tk.Text(root, height=10, width=50)
-text_entry.pack(pady=10)
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form['email']
+        password = request.form['password']
 
-# Create a button to make predictions
-predict_button = tk.Button(root, text="Predict", command=predict_news)
-predict_button.pack(pady=20)
+        user = User.query.filter_by(email=email).first()
 
-# Display accuracy in GUI
-accuracy_label = tk.Label(root, text=f"Model Accuracy: {accuracy:.2f}", font=("Helvetica", 12))
-accuracy_label.pack(pady=10)
+        if user and user.password == password:
+            session['user_id'] = user.id
+            flash('Logged in successfully!', 'success')
+            return redirect(url_for('classify'))
+        else:
+            flash('Invalid email or password!', 'danger')
 
-# Run the application
-root.mainloop()
+    get_flashed_messages()
+
+    return render_template('login.html')
+
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        fullname = request.form['fullname']
+        email = request.form['email']
+        password = request.form['password']
+        confirm_password = request.form['confirm-password']
+
+
+        if password != confirm_password:
+            flash('Passwords do not match!', 'danger')
+            return redirect(url_for('signup'))
+
+
+        new_user = User(fullname=fullname, email=email, password=password)
+        db.session.add(new_user)
+        db.session.commit()
+
+        flash('Registered successfully! Please login.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('signup.html')
+
+
+def croping_and_scaling(result, img):
+    left_eye_kp = result["keypoints"]["left_eye"]
+    right_eye_kp = result["keypoints"]["right_eye"]
+
+    eye_loc_percentage = (0.375, 0.375)
+    rescaled_img_width = 224
+
+    del_y_org = right_eye_kp[1] - left_eye_kp[1]
+    del_x_org = right_eye_kp[0] - left_eye_kp[0]
+    dist_org = np.sqrt((del_y_org * 2) + (del_x_org * 2))
+
+    rescaled_img_left_eye_kp = (eye_loc_percentage[0] * rescaled_img_width, eye_loc_percentage[1] * rescaled_img_width)
+    rescaled_img_right_eye_kp = ((1 - eye_loc_percentage[0]) * rescaled_img_width, eye_loc_percentage[1] * rescaled_img_width)
+
+    del_y_rescaled = rescaled_img_right_eye_kp[1] - rescaled_img_left_eye_kp[1]
+    del_x_rescaled = rescaled_img_right_eye_kp[0] - rescaled_img_left_eye_kp[0]
+    dist_rescaled = np.sqrt((del_y_rescaled) * 2 + (del_x_rescaled) * 2)
+
+    scaling_factor = dist_rescaled / dist_org
+    del_y = right_eye_kp[1] - left_eye_kp[1]
+    del_x = right_eye_kp[0] - left_eye_kp[0]
+    eyes_angle = np.degrees(np.arctan2(del_y, del_x))
+
+    eyes_center = ((left_eye_kp[0] + right_eye_kp[0]) / 2.0, (left_eye_kp[1] + right_eye_kp[1]) / 2.0)
+    rotation_matrix = cv2.getRotationMatrix2D(center=eyes_center, angle=eyes_angle, scale=scaling_factor)
+
+    translated_x = rescaled_img_width * 0.5
+    translated_y = rescaled_img_left_eye_kp[1]
+    rotation_matrix[0, 2] = rotation_matrix[0, 2] + (translated_x - eyes_center[0])
+    rotation_matrix[1, 2] = rotation_matrix[1, 2] + (translated_y - eyes_center[1])
+
+    rotated_and_scaled_image = cv2.warpAffine(src=img, M=rotation_matrix, dsize=(rescaled_img_width, rescaled_img_width))
+    return rotated_and_scaled_image
+
+
+
+def extract_faces_from_video(video_path, num_faces=3):
+    detector = MTCNN()
+    cap = cv2.VideoCapture(video_path)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    faces = []
+    
+    for idx in range(num_faces):
+        while True:
+            frame_id = random.randint(0, frame_count-1)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+            ret, frame = cap.read()
+
+            if not ret:
+                continue
+
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            result = detector.detect_faces(img)
+
+            if result:
+                rotated_and_scaled_image = croping_and_scaling(result[0], img)
+                face_filename = f"frame_{idx + 1}.jpg"  # Sequential filename
+                face_path = os.path.join('static', face_filename)
+                cv2.imwrite(face_path, rotated_and_scaled_image)
+                faces.append(face_path)
+                break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    
+    return faces
+
+
+
+def extract_faces_from_image(image_path):
+    detector = MTCNN()
+    faces = []
+
+    image = cv2.imread(image_path)
+    if image is None:
+        print(f"Failed to read image: {image_path}")
+        return faces
+
+    img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    results = detector.detect_faces(img_rgb)
+    if results is None:
+        print(f"No faces detected in the image: {image_path}")
+        return faces
+
+    for i, result in enumerate(results):
+        rotated_and_scaled_image = croping_and_scaling(result, img_rgb)
+        face_filename = f"image.jpg"
+        face_path = os.path.join('static', face_filename)
+        cv2.imwrite(face_path, rotated_and_scaled_image)
+        faces.append(face_path)
+
+    return faces
+
+
+
+@app.route('/classify', methods=['GET', 'POST'])
+def classify():
+    if request.method == 'POST':
+        image = request.files.get('image')
+        video = request.files.get('video')
+
+        if image:
+            print("Image uploaded")
+            image_path = os.path.join("uploads", image.filename)
+            image.save(image_path)
+
+            if os.path.exists(image_path):
+                faces = extract_faces_from_image(image_path)
+                if faces:
+                    face_paths = faces[0]
+                else:
+                    print(f"No face found")
+                    return render_template('main_1.html', error_message="No face found")
+                return redirect(url_for("process", face_paths=face_paths))
+            else:
+                print(f"File {image_path} does not exist.")
+                return render_template('main_1.html', error_message="Failed to process video.")
+
+
+
+        elif video:
+            print("Video uploaded")
+            video_path = os.path.join("uploads", video.filename)
+            video.save(video_path)
+
+            if os.path.exists(video_path):
+                faces = extract_faces_from_video(video_path, 3)
+                face_paths = ','.join(faces)
+                return redirect(url_for("process", face_paths=face_paths))
+            else:
+                print(f"File {video_path} does not exist.")
+                return render_template('main_1.html', error_message="Failed to process video.")
+
+    return render_template('main_1.html')
+
+
+@app.route('/process', methods=['GET', 'POST'])
+def process():
+    face_paths = request.args.get('face_paths')
+    print(face_paths)
+    face_paths = face_paths.split(',') if face_paths else []
+    print(face_paths)
+
+    detector = MTCNN()
+
+    model_path = 'svm_model.pkl'
+    model = joblib.load(model_path)
+
+    rotated_and_scaled_image = cv2.imread(face_paths[0])
+    if rotated_and_scaled_image is None:
+        print(f"Failed to read image: {face_paths[0]}")
+        return render_template('main_2.html', error_message="Failed to process video.")
+    result = detector.detect_faces(rotated_and_scaled_image)
+
+    blurred_img = cv2.GaussianBlur(rotated_and_scaled_image, (3, 3), 0.5)
+
+    nrmse = normalized_root_mse(rotated_and_scaled_image, blurred_img)
+    psnr = peak_signal_noise_ratio(rotated_and_scaled_image, blurred_img, data_range=255)
+    ssim = structural_similarity(rotated_and_scaled_image, blurred_img, channel_axis=2, gaussian_weights=True,
+                                    sigma=1.5, use_sample_covariance=False, data_range=255, win_size=7)
+
+    hist, bins = np.histogram(rotated_and_scaled_image.ravel(), 32, [0, 255], density=True)
+
+    feature_vector = np.concatenate([[nrmse], [psnr], [ssim], hist])
+
+    result = model.predict([feature_vector])
+    
+    result = result[0]  
+
+    return render_template('main_2.html', face_paths=face_paths, result=result)
+
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
+
