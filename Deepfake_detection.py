@@ -1,4 +1,3 @@
-
 from flask import flash, redirect, render_template, request, url_for, get_flashed_messages, Flask, session
 from flask_sqlalchemy import SQLAlchemy
 import os
@@ -6,6 +5,7 @@ import psycopg2
 import cv2
 from mtcnn import MTCNN
 import random
+import imblearn
 import numpy as np
 from skimage.metrics import normalized_root_mse, peak_signal_noise_ratio, structural_similarity
 import joblib
